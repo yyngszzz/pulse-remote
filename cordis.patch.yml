@@ -1,0 +1,13 @@
+# pulse-remote — bundle patch.
+#
+# One insert adds the Pulse host row to whichever profile mounts this package.
+# The row defaults to loopback-only: flipping `host` to '0.0.0.0' is the single
+# deliberate act that lets a phone reach this listener, and even then an
+# unpaired device receives nothing but the pairing gate.
+- insert:
+    - id: remote-pulse
+      name: pulse-remote
+      config:
+        host: '127.0.0.1'
+        port: 3199
+        notify: 'none'

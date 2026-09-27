@@ -1,0 +1,21 @@
+# Line endings: one answer for everyone.
+#
+# Without this, a Windows checkout rewrites every file (git's autocrlf turns LF into
+# CRLF on checkout), so the first `git status` a contributor sees is 64 modified files
+# that they did not touch — and every diff carries the whole file.
+#
+# `text=auto` normalises on the way in; `eol=lf` keeps the working copy LF, which is what
+# the scripts and the tests were written against.
+* text=auto eol=lf
+
+# The one exception: PowerShell files are read by Windows PowerShell 5.1, whose handling
+# of LF-only .ps1 files is a trap this project has already been bitten by.
+*.ps1 text eol=crlf
+
+# Anything binary must stay byte-for-byte.
+*.png binary
+*.jpg binary
+*.apk binary
+*.idsig binary
+*.jks binary
+*.keystore binary

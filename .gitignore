@@ -1,0 +1,24 @@
+node_modules/
+package-lock.json.bak
+*.log
+*.tgz
+
+# The pairing QR encodes a live one-time code.
+pulse-pair-qr.png
+
+# The plugin records what the agent produced; the index holds absolute local paths.
+artifacts.json
+
+# Isolated DSH homes created by the integration and live-verification scripts. They
+# contain a copied model credential and device tokens, so they must never be committed.
+.dsh-*/
+**/.dsh-*/
+
+# Android side (when it is published from the same tree): the signing key decides this
+# app's identity for updates, so anyone holding it could publish an update that Android
+# would accept over the installed app.
+keystore/
+*.jks
+dist/
+*.apk
+*.idsig
