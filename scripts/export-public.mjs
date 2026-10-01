@@ -49,7 +49,10 @@ const FORBIDDEN = [
   // private keys stay out of the artifact index, and flagging those would be flagging the test that
   // protects this. What matters is this machine's own key location, and the key's contents above.
   { what: 'this machine\'s ssh key directory', re: /D:\\tools\\gh-ssh/ },
-  { what: 'a signing keystore', re: /\.(jks|keystore)\b/ },
+  // The keystore *file* is kept out by path (and by .gitignore), so naming it in the README's file
+  // table or in the build script's own variable is not a leak — and flagging those would train
+  // whoever runs this to ignore the report. What must never appear is its password.
+  { what: 'a keystore password', re: /(storePass|keyPass|storepass|keypass)\s*[:=]\s*['"][^'"]{3,}['"]/ },
   { what: 'the deployment host', re: /134\.175\.116\.155/ },
   { what: 'this machine\'s user name', re: /C:\\Users\\12971/ },
 ];
@@ -59,6 +62,53 @@ const EXCLUDED = new Set([
   // Hard-codes this checkout's path and restarts the local development server.
   'scripts/restart-and-verify.ps1',
 ]);
+
+/**
+ * The Android tree goes out with the plugin, minus the parts that are this deployment's.
+ *
+ * `keystore/` is the signing key — anyone holding it could publish an update Android would accept
+ * over the installed app. `app/res/raw/pulse_ca.crt` carries this server's address in its subject,
+ * so a placeholder goes in its place and the README says how to build with your own. `dist/` and
+ * `build/` hold an APK with that address baked in, and the password in `build.ps1` is this machine's.
+ */
+const ANDROID_TREE = 'pulse-android';
+// A sibling of the plugin, not a child: this workspace keeps the Android app next to it.
+const ANDROID_ROOT = join(root, '..', ANDROID_TREE);
+const EXCLUDED_PATTERNS = [
+  /^pulse-android\/(keystore|dist|build)\//,
+  /\.(jks|apk|aab|idsig)$/,
+];
+const PLACEHOLDER_CERT = 'D:\\tools\\pulse-placeholder-ca.crt';
+const REPLACEMENT_FILES = new Map([
+  ['pulse-android/app/res/raw/pulse_ca.crt', PLACEHOLDER_CERT],
+]);
+/** Lines that have to read differently in public, because they are about this machine. */
+const LINE_FIXES = [
+  {
+    file: 'pulse-android/build.ps1',
+    from: /^\$storePass = '.*'$/m,
+    to: "$storePass = if ($env:PULSE_STORE_PASS) { $env:PULSE_STORE_PASS } else { 'CHANGE_ME' }",
+    about: 'the signing keystore password, which must never be committed',
+  },
+];
+
+/** Every file of the Android tree, minus the excluded ones. */
+function androidFiles() {
+  const at = ANDROID_ROOT;
+  if (!existsSync(at)) return [];
+  const found = [];
+  const walk = current => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name);
+      const name = `${ANDROID_TREE}/${relative(at, full).split('\\').join('/')}`;
+      if (EXCLUDED_PATTERNS.some(pattern => pattern.test(name))) continue;
+      if (entry.isDirectory()) walk(full);
+      else found.push(name);
+    }
+  };
+  walk(at);
+  return found.sort();
+}
 
 /** Fixed files, then every source file of each kind. */
 function manifest() {
@@ -76,15 +126,23 @@ function manifest() {
       list.push(`${dir}/${entry}`);
     }
   }
-  return list;
+  return list.concat(androidFiles());
 }
 
 const files = manifest();
 const report = [];
 let failures = 0;
 
+/** Where one export name is read from: the Android tree is a sibling, everything else is here. */
+function sourcePath(name) {
+  if (name.startsWith(`${ANDROID_TREE}/`)) {
+    return join(ANDROID_ROOT, name.slice(ANDROID_TREE.length + 1));
+  }
+  return join(root, name);
+}
+
 for (const name of files) {
-  const from = join(root, name);
+  const from = REPLACEMENT_FILES.has(name) ? REPLACEMENT_FILES.get(name) : sourcePath(name);
   const to = join(into, name);
   let text = readFileSync(from, 'utf8');
   const redacted = [];
@@ -93,6 +151,12 @@ for (const name of files) {
       redacted.push(String(pattern));
       text = text.replace(pattern, replacement);
     }
+  }
+  const fixed = [];
+  for (const fix of LINE_FIXES) {
+    if (fix.file !== name || !fix.from.test(text)) continue;
+    text = text.replace(fix.from, fix.to);
+    fixed.push(fix.about);
   }
   // Scan the text that is about to be written, line by line, so a hit names the line.
   const lines = text.split('\n');
@@ -108,7 +172,8 @@ for (const name of files) {
     writeFileSync(to, text, 'utf8');
   }
   report.push(`  ${dry ? 'would write' : 'wrote'} ${name} (${statSync(from).size} bytes`
-    + `${redacted.length ? `, redacted ${redacted.length}` : ''})`);
+    + `${redacted.length ? `, redacted ${redacted.length}` : ''}`
+    + `${fixed.length ? `, fixed ${fixed.join('; ')}` : ''})`);
 }
 
 console.log(`${dry ? 'dry run: ' : ''}${files.length} files -> ${into}`);

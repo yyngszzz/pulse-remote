@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DeepSeek</string>
+
+    <string name="channel_stream_name">后台连接</string>
+    <string name="channel_stream_desc">保持与电脑的长连接。系统要求前台服务必须有一条通知，这一条已设到最安静：不响、不进状态栏、不上锁屏。</string>
+    <string name="channel_alert_name">任务与决策</string>
+    <string name="channel_alert_desc">对话停下来等你决定、或者一轮做完时，弹一条通知告诉你是哪个项目</string>
+
+    <!-- The ongoing connection line. System rule: a foreground service must show one, and it
+         cannot be nothing — so it shows the current *state*, and the state is the useful part:
+         which project is being worked on, what it is doing right now, or that nothing is
+         running. It is swipeable (setOngoing(false)), and the channel is IMPORTANCE_MIN: no
+         sound, no heads-up, no lock screen, no badge. -->
+    <string name="service_title">DeepSeek 手机遥控</string>
+    <string name="service_title_connecting">DeepSeek 连接中…</string>
+    <string name="service_title_offline">DeepSeek 未连接</string>
+    <string name="service_text_unpaired">尚未配对，点开扫码配对</string>
+    <string name="service_text_live">当前没有任务</string>
+    <string name="service_text_offline">暂时连不上电脑，正在重连</string>
+
+    <string name="progress_title_running">正在处理</string>
+    <string name="progress_title_problem">出错了</string>
+    <string name="progress_title_waiting">等待你决定</string>
+    <string name="progress_text_done">已完成，点开看这一轮改了什么</string>
+    <!-- The ongoing row while something is happening: which project, and in what state. %1$s is
+         the project the frame belongs to; the frame's own activity line stays the text, so the
+         row answers "what is it doing right now" without opening anything. -->
+    <string name="progress_title_running_project">正在处理「%1$s」</string>
+    <string name="progress_title_waiting_project">等你决定「%1$s」</string>
+    <string name="progress_title_problem_project">出错「%1$s」</string>
+    <!-- The ongoing row once a round has finished: %1$s is the project, %2$s the digest. -->
+    <string name="progress_title_done_project">「%1$s」· %2$s</string>
+
+    <string name="decision_title">需要你决定</string>
+    <string name="turn_done_title">任务完成</string>
+    <!-- Headlines that name *which* task, because "任务完成" alone is ambiguous the moment two
+         conversations are open. %1$s is the project the frame belongs to. -->
+    <string name="done_headline">「%1$s」这一轮做完了</string>
+    <string name="decision_headline">「%1$s」等你选</string>
+    <string name="action_open">打开</string>
+    <string name="action_install_cert">装证书</string>
+
+    <string name="pick_camera">拍照</string>
+    <string name="pick_media">照片 / 视频</string>
+    <string name="pick_files">手机文件</string>
+    <string name="pick_cancel">取消</string>
+    <string name="pick_unavailable">这台手机上找不到可用的应用</string>
+</resources>

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Pulse Remote — a thin shell around the official DeepSeek Harness web UI.
+
+  This is deliberately not a client reimplementation: the Activity loads the
+  official interface, so every feature the desktop has, the phone has, including
+  features added after this APK was built. The shell adds only the three things a
+  browser cannot give it:
+
+    1. trust for this deployment's self-signed certificate (res/xml + res/raw),
+       so no domain, no public CA and no certificate installation are needed;
+    2. a foreground service holding the notification stream, so task-completion
+       and approval notices arrive without any third-party push service;
+    3. an app icon and a full-screen window without browser chrome.
+
+  NoActionBar matters for the last one: the default platform theme draws an
+  ActionBar above the WebView, which shows up as a black band titled with the app
+  name — a second title bar sitting on top of the client's own header.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.pulse.remote"
+    android:versionCode="14"
+    android:versionName="1.13">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- The notification stream is carried by a foreground service; without one
+         Android suspends background sockets within minutes of the screen going
+         off, which is exactly when a notification matters. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@drawable/ic_launcher"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="false"
+        android:hardwareAccelerated="true"
+        android:allowBackup="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <!--
+          Portrait only. The shell's layout is written for a tall viewport and the whole
+          point of it is adapting a desktop interface to a narrow screen; landscape is a
+          worse version of the same thing, and a half-turn of the wrist mid-read was the
+          complaint. Locking it also means the WebView never re-lays-out under a finger.
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density|uiMode"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          specialUse rather than dataSync: on Android 14+ a dataSync foreground
+          service is subject to a daily runtime budget and gets stopped when it
+          runs out, which would silently end notifications. specialUse carries no
+          such timeout, and the subtype property below states the purpose.
+        -->
+        <service
+            android:name=".PulseService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps a persistent connection to the owner's own computer so live task progress, task-completion and approval notifications arrive without any third-party push service." />
+        </service>
+
+        <!--
+          Serves exactly one cache directory, so the camera has a content:// URI to
+          write a captured photo into. Not exported, and reachable only through the
+          per-URI write grant attached to the capture intent.
+        -->
+        <provider
+            android:name=".FileBridge"
+            android:authorities="com.pulse.remote.files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+    </application>
+</manifest>

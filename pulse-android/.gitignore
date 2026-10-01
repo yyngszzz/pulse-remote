@@ -1,0 +1,8 @@
+# Build outputs
+build/
+dist/
+
+# The signing key identifies this app for updates. It is deliberately NOT
+# committed: it is a personal key, and anyone holding it could publish an update
+# that Android would accept over the installed app.
+keystore/

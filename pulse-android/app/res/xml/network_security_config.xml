@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Trust for exactly one host, and nothing else.
+
+  The server presents a self-signed certificate for a bare IP address. Bundling
+  that certificate as a trust anchor is what removes the entire domain / public
+  CA / ICP filing chain from this deployment: the phone accepts this one
+  certificate because it was built with it, and every other HTTPS connection in
+  the app still goes through the normal system trust store.
+
+  `user` is deliberately NOT listed: nothing has to be installed on the phone by
+  hand, and a certificate the user later adds cannot silently become trusted here.
+
+  The server's certificate carries `IP Address:YOUR_HOST` in its
+  subjectAltName and is valid until 2036, so hostname verification passes and
+  there is nothing to renew.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">YOUR_HOST</domain>
+        <trust-anchors>
+            <certificates src="@raw/pulse_ca" />
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+
+    <!-- Anything else the app might ever talk to gets ordinary public trust. -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
