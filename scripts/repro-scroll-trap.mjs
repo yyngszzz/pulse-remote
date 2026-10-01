@@ -26,7 +26,7 @@
  * thing measured is whether the outer scroller moved. A layout that cannot be
  * scrolled by a finger is a fact, not an opinion, so the numbers decide.
  *
- * @module pulse-remote/scripts/repro-scroll-trap
+ * @module dsh-remote-pulse/scripts/repro-scroll-trap
  */
 
 import { existsSync } from 'node:fs';

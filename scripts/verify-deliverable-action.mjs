@@ -21,7 +21,7 @@
  * responsible for, including the failure that matters most: React deletes foreign
  * nodes, so the control is deleted here on purpose and must come back.
  *
- * @module pulse-remote/scripts/verify-deliverable-action
+ * @module dsh-remote-pulse/scripts/verify-deliverable-action
  */
 
 import { existsSync } from 'node:fs';

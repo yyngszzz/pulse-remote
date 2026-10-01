@@ -26,7 +26,7 @@
  * situation rather than a convenience: if the probe ever finds links and decorates
  * none of them, that is the failure worth knowing about.
  *
- * @module pulse-remote/scripts/verify-file-link-action
+ * @module dsh-remote-pulse/scripts/verify-file-link-action
  */
 
 import { existsSync } from 'node:fs';
@@ -156,14 +156,14 @@ const plant = page => page.evaluate(sample => {
       props: { filePath: sample, cwd: 'D:\\elsewhere' } },
     // No prop path, but the workspace it is relative to: join them.
     { id: 'cwd', html: '<button type="button" class="Zz_fileLink">lib\\ui.js</button>',
-      props: { cwd: 'D:\\code\\pulse-remote' } },
+      props: { cwd: 'D:\\deepseek harness\\dsh-remote-pulse' } },
     // The row printed an absolute path already.
     { id: 'absolute', html: '<button type="button" class="Zz_fileLink">' + sample + '</button>',
       props: {} },
     // The prop names a different file while a workspace is known: the prop is not
     // this row's, so it is dropped and the workspace is used instead of trusting it.
     { id: 'disagree', html: '<button type="button" class="Zz_fileLink">other.js</button>',
-      props: { filePath: sample, cwd: 'D:\\code' } },
+      props: { filePath: sample, cwd: 'D:\\deepseek harness' } },
     // The prop names a different file and there is nothing to resolve against: refuse.
     { id: 'refuse', html: '<button type="button" class="Zz_fileLink">lib\\ui.js</button>',
       props: { filePath: sample } },
@@ -290,12 +290,12 @@ try {
   record('组件 props 里的绝对路径被取到了（并且没有被旁边的 cwd 带偏）',
     fixture.prop.includes(encodeURIComponent(SAMPLE)), `href=${fixture.prop.slice(0, 90)}`);
   record('只有 cwd 时用工作区拼出绝对路径',
-    fixture.cwd.includes(encodeURIComponent('D:\\code\\pulse-remote\\lib\\ui.js')),
+    fixture.cwd.includes(encodeURIComponent('D:\\deepseek harness\\dsh-remote-pulse\\lib\\ui.js')),
     `href=${fixture.cwd.slice(0, 90)}`);
   record('行里本来就是绝对路径时直接用',
     fixture.absolute.includes(encoded.slice(0, 40)), `href=${fixture.absolute.slice(0, 90)}`);
   record('props 与行文字不是同一个文件时不用它，退回工作区而不是硬信',
-    fixture.disagree.includes(encodeURIComponent('D:\\code\\other.js')),
+    fixture.disagree.includes(encodeURIComponent('D:\\deepseek harness\\other.js')),
     `href=${fixture.disagree.slice(0, 90)}`);
   record('既没有能对上的 props 也没有工作区时拒绝注入（宁可没有，也不给错的）',
     fixture.refuse === '', `href=${fixture.refuse || '(没有控件)'}`);

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { createHash } from 'node:crypto';
 import { connect } from 'node:net';
 import { test } from 'node:test';
@@ -12,7 +12,7 @@ test('only the downloads the shell asked for get an attachment header', () => {
   // browser shows the file instead of saving it. The marker is ours, and this is
   // the whole of the rewrite.
   const disposition = downloadDisposition(
-    '/api/file?path=' + encodeURIComponent('D:\\code\\pulse-android\\dist\\pulse-remote.apk')
+    '/api/file?path=' + encodeURIComponent('D:\\deepseek harness\\pulse-android\\dist\\pulse-remote.apk')
     + '&download=1',
   );
   assert.equal(disposition, 'attachment; filename="pulse-remote.apk"');
@@ -74,6 +74,13 @@ async function fakeHarness(options = {}) {
       });
       return;
     }
+    if (url.pathname === '/never') {
+      // Headers, one byte, and then nothing: the body this client is waiting for never comes,
+      // which is the shape a phone leaves behind when it walks away mid-response.
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.write('start');
+      return;
+    }
     res.writeHead(200, { 'content-type': 'text/html' });
     res.end('<html><body>official shell</body></html>');
   });
@@ -106,6 +113,8 @@ async function fakeHarness(options = {}) {
     seen,
     cookieName,
     server,
+    /** How many upstream connections are open right now — the leak measurement. */
+    liveConnections: () => connections.size,
     /** Expose the http server so tests can attach upgrade tracking. */
     close: async () => {
       for (const socket of connections) socket.destroy();
@@ -352,6 +361,82 @@ test('proxyHttp forwards end to end and rewrites the session cookie to the phone
     assert.ok([200, 401].includes(response.status));
   } finally {
     await new Promise(resolve => front.close(resolve));
+    await harness.close();
+  }
+});
+
+test('a phone that walks away mid-response does not leave the upstream connection behind', async () => {
+  // Measured on the real thing: **two connections and two handles per phone page load**, climbing
+  // linearly (458 -> 530 handles over 36 loads) and never coming back after the page closed. The
+  // path is a client that leaves while the upstream is still streaming — `inner.pipe(res)` into a
+  // dead response left the upstream socket ESTABLISHED for the life of the process, and the
+  // promise that never resolved kept the whole request reachable.
+  //
+  // A process that accumulates those ends up **holding its port while answering nothing**: the
+  // phone cannot load, the desktop GUI cannot load, and a fresh `dsh web` is refused with
+  // EADDRINUSE until the machine is rebooted. That was 2026-09-29, and it is why this test
+  // exists. The naive proxy below is the control: without the teardown it leaks, so a passing
+  // assertion above is a measurement rather than a coincidence.
+  const harness = await fakeHarness();
+  const bootstrap = bootstrapFor(harness);
+  const gateway = new LoopbackGateway({ bootstrap, authority: harness.authority, onWarn: () => {} });
+  await bootstrap.ensure();
+
+  const front = createServer((req, res) => {
+    gateway.proxyHttp(req, res, 'phone.local:3199').catch(() => res.destroy());
+  });
+  const naive = createServer((req, res) => {
+    const upstream = httpRequest({
+      host: harness.authority.split(':')[0],
+      port: Number(harness.authority.split(':')[1]),
+      method: req.method,
+      path: req.url,
+      headers: { host: harness.authority, cookie: bootstrap.header() ?? '' },
+    }, inner => {
+      res.writeHead(inner.statusCode ?? 502, inner.headers);
+      inner.pipe(res);
+    });
+    upstream.on('error', () => res.destroy());
+    req.pipe(upstream);
+  });
+  await new Promise(resolve => front.listen(0, '127.0.0.1', resolve));
+  await new Promise(resolve => naive.listen(0, '127.0.0.1', resolve));
+
+  /** Ask for a response that never finishes, then walk away after the first byte. */
+  const abandon = port => new Promise(resolve => {
+    const request = httpRequest({ host: '127.0.0.1', port, path: '/never' }, response => {
+      response.once('data', () => {
+        request.destroy();
+        resolve();
+      });
+    });
+    request.on('error', () => resolve());
+    request.end();
+  });
+
+  const waitForIdle = async expected => {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (harness.liveConnections() <= expected) return;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+  };
+
+  try {
+    const base = harness.liveConnections();
+    await abandon(naive.address().port);
+    await waitForIdle(base);
+    const leaked = harness.liveConnections();
+    assert.ok(leaked > base,
+      'the control has to leak, or the assertion below would pass on a proxy that never had the bug');
+
+    const afterControl = harness.liveConnections();
+    await abandon(front.address().port);
+    await waitForIdle(afterControl);
+    assert.equal(harness.liveConnections(), afterControl,
+      `the proxied connection must be closed, saw ${harness.liveConnections() - afterControl} still open`);
+  } finally {
+    await new Promise(resolve => front.close(resolve));
+    await new Promise(resolve => naive.close(resolve));
     await harness.close();
   }
 });

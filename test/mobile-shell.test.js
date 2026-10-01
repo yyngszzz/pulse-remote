@@ -141,7 +141,7 @@ async function mountShell(options = {}) {
   // the whole reason the shell has to rewrite it: a grid item that leaves the
   // flow takes its track's width with it and every remaining column shifts left.
   const dom = new JSDOM(
-    `<!doctype html><html><body><div id="root"><div class="${lateFrame ? 'pI_x6G_notYet' : 'pI_x6G_frame'}" style="grid-template-columns: 56px minmax(0px, 1fr) 0px;">${
+    `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"></head><body><div id="root"><div class="${lateFrame ? 'pI_x6G_notYet' : 'pI_x6G_frame'}" style="grid-template-columns: 56px minmax(0px, 1fr) 0px;">${
       sidebar
         ? '<div class="pI_x6G_sidebarCol"><div class="hHd-Xa_root hHd-Xa_collapsed" id="rail">' +
           (toggle ? `<button aria-label="${SIDEBAR_TOGGLE_LABELS.open}" id="official-toggle">rail</button>` : '') +
@@ -569,7 +569,7 @@ async function mountPresentRows(cases, options = {}) {
 }
 
 test('the collapsed present row carries the control, at every width', async () => {
-  const root = 'D:\\code';
+  const root = 'D:\\deepseek harness';
   const delivered = 'pulse-android/dist/pulse-remote.apk';
   // The expected URL is built from the path rather than written out: the encoded form
   // (`D%3A%5Cdeepseek%20harness`) is what a copy-pasted literal gets wrong, and a frozen
@@ -756,6 +756,24 @@ test('the shell finds the header action container and its tab strip together', a
   assert.equal(debug.headerRows().length, 1, 'the fixture has one wrapper; the client may render more');
 });
 
+test('one chip label cannot decide the width of the whole header', async () => {
+  // Measured on a conversation with a background job running: the jobs chip's own text is
+  // 226px ("1 个后台任务运行中"), the mode chip rides in the same container, and the strip has
+  // 202px beside 轨迹 — 232px of chips against 202px of room, so the fit test says "no" and
+  // the shell correctly leaves the official layout alone. On the phone that is "the top of the
+  // screen is a mess again": the chips sit in the title row and squeeze the session title to
+  // nothing. The ceiling is what makes the arithmetic land — measured 182px of chips after it,
+  // and they move.
+  const css = mobileShellStyles();
+  assert.match(css, /\[class\*="_headerActions"\] \[class\*="_count"\][\s\S]{0,200}?max-width:\s*64px\s*!important/,
+    'the chip text is capped, so a long label cannot push the group past the strip');
+  assert.match(css, /\[class\*="_headerActions"\] \[class\*="_count"\][\s\S]{0,200}?text-overflow:\s*ellipsis/,
+    'and the cut is shown as an ellipsis rather than clipped silently');
+  // Bounded, not merely smaller: the label cannot grow with the job count, so the group's
+  // width is a constant for a given set of chips and the fit test cannot oscillate.
+  assert.equal(/max-width:\s*72px/.test(css), false, 'one ceiling, and it is the one the checks above pin down');
+});
+
 test('the subagent count chip is moved next to the mode chip, in front of it', async () => {
   // The third contribution does not arrive in a `_headerActions` wrapper at all: the client
   // renders the lineage slot inside the title's crumb segment, which is why it stayed at the
@@ -800,10 +818,249 @@ test('the subagent count chip counts toward whether the row still fits', async (
   // subagent count being counted rather than about which gap the test environment reported.
   const { actions, lineage } = stubHeaderGeometry(page, { chipWidth: 160, lineageWidth: 80 });
   debug.syncHeaderActions();
-  assert.equal(debug.headerActions(), 'narrow', 'so the row is left as the client laid it out');
+  // Three chips cannot fit on a 390px phone and cannot be made to — measured at 283px against
+  // 202px — so the shell picks by priority instead of declining everything: the action wrapper
+  // (mode chip, and the jobs chip beside it) takes the strip, and the subagent count is the one
+  // that stays where the client put it. Declining everything used to put all three back in the
+  // title row and squeeze the session title to a measured 0px, which is what the phone showed
+  // as "the top is a mess".
+  assert.equal(debug.headerActions(), 'partial', 'the wrapper moves, the count stays behind');
+  const group = debug.headerGroup();
+  assert.equal(actions.parentElement, group,
+    `the mode chip is in the strip (parent=${String(actions.parentElement?.className)}`
+    + ` group=${String(group?.className)} children=${group?.children.length}`
+    + ` tabsChildren=${group?.parentElement?.children.length})`);
   assert.equal(lineage.parentElement.className.includes('wSkVaW_crumbSeg'), true,
-    'and the subagent count is handed back with the others, not left behind in the strip');
-  assert.equal(actions.parentElement.className.includes('wSkVaW_titleCluster'), true);
+    'and the subagent count keeps the place the client gave it, beside the title');
+  assert.equal(lineage.hasAttribute('data-pulse-header-lineage'), false,
+    'with no marker left over from an earlier pass');
+
+  // And when not even the wrapper fits, nothing moves at all: the official layout is left as the
+  // client laid it out, which is the 320px case.
+  const narrow = await mountShell({ lineage: true });
+  const narrowDebug = narrow.window.__PULSE_SHELL_DEBUG__;
+  const narrowParts = stubHeaderGeometry(narrow, { chipWidth: 260, lineageWidth: 80 });
+  narrowDebug.syncHeaderActions();
+  assert.equal(narrowDebug.headerActions(), 'narrow');
+  assert.equal(narrowParts.actions.parentElement.className.includes('wSkVaW_titleCluster'), true);
+  assert.equal(narrowDebug.headerGroup(), null, 'and no empty group is left in the strip');
+});
+
+test('the phone page cannot be zoomed, and the desktop gets its viewport back', async () => {
+  // Asked for directly. Two halves, because neither is enough alone: the viewport meta is what
+  // a page declares and touch-action is what Chromium enforces at gesture time (some engines
+  // ignore user-scalable=no for accessibility reasons). Double-tap zoom goes with it, which
+  // also stops a fast second tap on a chip from being read as the first half of a double-tap.
+  // `force: false` because the `?pulse=mobile` hatch would keep the shell active at any width
+  // — and the point of the second half is what happens when the desktop width takes it away.
+  const page = await mountShell({ force: false, width: 390 });
+  const debug = page.window.__PULSE_SHELL_DEBUG__;
+  const html = page.document.documentElement;
+  assert.equal(html.classList.contains('pulse-no-zoom'), true, 'the phone view locks the scale');
+
+  const meta = page.document.querySelector('meta[name="viewport"]');
+  assert.ok(meta, 'the fixture ships the viewport the client declares');
+  const content = meta.getAttribute('content');
+  assert.match(content, /user-scalable=no/);
+  assert.match(content, /maximum-scale=1/);
+  assert.match(content, /minimum-scale=1/);
+  // Everything the client had declared is kept: width and viewport-fit are what the shell's
+  // own safe-area insets depend on, and a lock that dropped them would break the layout.
+  assert.match(content, /width=device-width/);
+  assert.match(content, /viewport-fit=cover/);
+  assert.equal((content.match(/width=/g) || []).length, 1,
+    `width is declared exactly once, saw: ${content}`);
+  assert.equal((content.match(/initial-scale=/g) || []).length, 1,
+    'and the scale is stated once — by us, not twice with the client\u2019s original');
+  const css = mobileShellStyles();
+  assert.match(css, /html\.pulse-no-zoom[\s\S]{0,90}touch-action:\s*pan-x pan-y\s*!important/,
+    'panning stays, pinching does not');
+
+  // Handing it back is part of the deal: this shell owns the phone width, not the desktop's.
+  Object.defineProperty(page.window, 'innerWidth', { value: 1400, configurable: true, writable: true });
+  debug.refresh();
+  assert.equal(html.classList.contains('pulse-no-zoom'), false, 'a desktop window keeps its zoom');
+  assert.equal(meta.getAttribute('content'), 'width=device-width, initial-scale=1, viewport-fit=cover',
+    'and the viewport meta goes back to exactly what the client declared');
+
+  // A page whose client declared none at all: the lock has to write one, and take it away
+  // again rather than leave an empty element behind.
+  meta.remove();
+  html.classList.remove('pulse-no-zoom');
+  debug.lockViewportScale();
+  const written = page.document.querySelector('meta[name="viewport"]');
+  assert.ok(written, 'a viewport meta is written when the page has none');
+  const writtenContent = written.getAttribute('content');
+  assert.match(writtenContent, /width=device-width/);
+  assert.match(writtenContent, /initial-scale=1/);
+  assert.match(writtenContent, /user-scalable=no/);
+  assert.equal((writtenContent.match(/width=/g) || []).length, 1, 'and declared exactly once');
+  debug.unlockViewportScale();
+  assert.equal(page.document.querySelector('meta[name="viewport"]'), null,
+    'and it is ours to remove again');
+});
+
+test('a page that outlived the backend reloads itself, but only then', async () => {
+  // A phone keeps its page for days and this shell is snapshotted into it at plugin load, so
+  // after a harness restart the page talks to a process that no longer exists: everything
+  // delivered as *state* (a pending question, a re-rendered transcript) never arrives, and the
+  // user sees "it didn't render" while the same conversation is fine on a freshly loaded tab.
+  // The backend's boot id is the signal that it was **replaced** rather than merely slow.
+  const page = await mountShell();
+  const debug = page.window.__PULSE_SHELL_DEBUG__;
+  const boot = () => plain(debug.boot());
+
+  assert.equal(debug.noteBootId('first'), false, 'the first answer is only recorded');
+  assert.equal(boot().id, 'first');
+  assert.equal(debug.noteBootId('first'), false, 'the same answer is nothing to do');
+  assert.equal(debug.noteBootId(''), false, 'a request that failed is not evidence of a restart');
+  assert.equal(debug.noteBootId('second'), true, 'a different id is the one thing that reloads');
+
+  const after = boot();
+  assert.equal(after.changes, 1, 'and it is counted, so a probe can see it happened');
+  assert.equal(after.checks, 4, 'every answer was looked at, including the empty one');
+
+  // A recovery must not become the problem. If the backend ever answered with two different
+  // ids in a row, a page that reloads on every poll is a request storm aimed at the process it
+  // is trying to talk to — so a page gets one reload per five minutes, and no more.
+  const stamp = page.window.sessionStorage.getItem('pulse.reload.v1');
+  assert.equal(debug.mayReload(), true, 'the first recovery is allowed');
+  assert.equal(Number(page.window.sessionStorage.getItem('pulse.reload.v1')) > 0, true,
+    'and it is stamped');
+  assert.equal(debug.mayReload(), false, 'a second one inside the floor is refused');
+  assert.equal(boot().reloads, 1, 'the count says one recovery was used, not two');
+  assert.equal(stamp, null, 'nothing was stamped before the first recovery');
+  page.window.sessionStorage.setItem('pulse.reload.v1', String(Date.now() - 6 * 60 * 1000));
+  assert.equal(debug.mayReload(), true, 'an old stamp is spent, so the page may recover again');
+});
+
+test('a tap on the subagent count toggles its panel, every time', async () => {
+  // The list opens 150ms after a hover and closes on a mouseout, and a touch screen supplies
+  // only half of that: the browser sends a mouseover when the finger lands on a *different*
+  // element, so after the panel had been closed the same chip went deaf — measured on the real
+  // page as open, closed, closed, closed, closed over five taps in a row. The shell dispatches
+  // both halves, out of the same two events the client listens for, keyed off what the control
+  // says about itself (aria-expanded).
+  const page = await mountShell({ lineage: true });
+  const slot = page.document.querySelector('[data-slot*="header.lineage"]');
+  const root = slot.firstElementChild;
+  const trigger = slot.querySelector('button');
+  const asked = [];
+  let open = false;
+  root.addEventListener('mouseover', () => { asked.push('over'); open = true; });
+  root.addEventListener('mouseout', () => { asked.push('out'); open = false; });
+  const tap = node => node.dispatchEvent(new page.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+
+  trigger.setAttribute('aria-expanded', 'false');
+  for (let tapIndex = 1; tapIndex <= 4; tapIndex += 1) {
+    tap(trigger);
+    // The client would re-render with its new state before the next tap arrives.
+    trigger.setAttribute('aria-expanded', String(open));
+  }
+  assert.deepEqual(asked, ['over', 'out', 'over', 'out'],
+    'each tap asks for the opposite of what the chip reports');
+  assert.equal(open, false, 'so four taps leave it closed');
+
+  // Nothing else on the page is affected: this is the subagent count's own behaviour.
+  tap(page.document.querySelector('[role="tab"]'));
+  assert.equal(asked.length, 4);
+
+  // And an open control somewhere else is not touched either — the handler is scoped to the
+  // lineage slot, not to "any button with aria-expanded".
+  const other = page.document.querySelector('.pulse-burger');
+  other.setAttribute('aria-expanded', 'true');
+  tap(other);
+  assert.equal(asked.length, 4, 'only the subagent count is wired');
+
+  // ... and when one tap's first half changes nothing, the other half follows. The client does not
+  // maintain aria-expanded on this chip (measured: it reads false while its panel is open), so
+  // which half opens the panel is a guess — which is what the phone reported as "tapping it does
+  // nothing again". One deferred ask, not a loop: a tap stays a toggle.
+  //
+  // The taps above queued the same deferred ask, so they are allowed to land first; otherwise this
+  // would be counting their events as if they were this tap's.
+  await new Promise(resolve => setTimeout(resolve, 400));
+  const extra = [];
+  root.addEventListener('mouseover', () => extra.push('over'));
+  root.addEventListener('mouseout', () => extra.push('out'));
+  trigger.setAttribute('aria-expanded', 'false');
+  tap(trigger);
+  assert.deepEqual(extra, ['over'], 'the first half is sent synchronously');
+  await new Promise(resolve => setTimeout(resolve, 400));
+  assert.deepEqual(extra, ['over', 'out'],
+    'and the opposite follows when the button still reports closed, so whichever half the client '
+    + 'listens for is the one that opens it');
+});
+
+
+test('a second tap on the subagent chip puts its list away, and the next one brings it back', async () => {
+  // The phone reported this twice: the chip opens its list and there is no way to close it. Escape
+  // and an outside click were tried and reverted, so the shell now owns both halves: it hides the
+  // list it opened and remembers doing it, and restores it when the list is asked for again — which
+  // is why hiding it can never make a later open invisible.
+  const page = await mountShell({ lineage: true });
+  const debug = page.window.__PULSE_SHELL_DEBUG__;
+  const doc = page.document;
+  const slot = doc.querySelector('[data-slot*="header.lineage"]');
+  const root = slot.firstElementChild;
+  const trigger = slot.querySelector('button');
+
+  const asked = [];
+  root.addEventListener('mouseover', () => asked.push('over'));
+  root.addEventListener('mouseout', () => asked.push('out'));
+
+  const list = doc.createElement('div');
+  list.className = 'ZKlsPq_menu';
+  list.textContent = '子代理 会话';
+  list.getBoundingClientRect = () => ({
+    top: 120, bottom: 320, left: 20, right: 300, width: 280, height: 200, x: 20, y: 120,
+  });
+  doc.body.appendChild(list);
+
+  const tap = node => node.dispatchEvent(new page.window.MouseEvent('click', {
+    bubbles: true, cancelable: true,
+  }));
+
+  tap(trigger);
+  assert.equal(list.style.display, 'none', 'the list that was open is hidden');
+  assert.deepEqual(asked, [], 'and no hover is simulated when the job is to close');
+  assert.equal(debug.state.lineageClosed, 1, 'and the panel can report that it happened');
+
+  tap(trigger);
+  assert.equal(list.style.display, '', 'the next tap brings the same list back');
+  assert.deepEqual(asked, ['over'], 'and asks the client for it as it always did');
+  assert.equal(debug.state.lineageHidden, list, 'the hidden list is the one remembered');
+});
+
+test('opening the add panel jumps the conversation to its bottom first', async () => {
+  // The request in the user's words: tapping the add button should jump straight to the bottom and
+  // leave the room for the options to render. The transcript goes to its end so the panel has the
+  // space above the composer — and it happens *before* the cap is measured, or the cap would be
+  // computed against the layout that is about to change.
+  const page = await mountShell({});
+  const debug = page.window.__PULSE_SHELL_DEBUG__;
+  const doc = page.document;
+  const composer = doc.querySelector('textarea');
+
+  // The client's own scroll container: the ancestor of the composer that actually scrolls. Defined
+  // rather than assigned, because jsdom's scrollHeight/clientHeight are getters.
+  const scroller = composer.parentElement;
+  Object.defineProperty(scroller, 'scrollHeight', { value: 900, configurable: true });
+  Object.defineProperty(scroller, 'clientHeight', { value: 300, configurable: true });
+  const realStyle = page.window.getComputedStyle;
+  page.window.getComputedStyle = node => (node === scroller
+    ? { ...realStyle.call(page.window, node), overflowY: 'auto' }
+    : realStyle.call(page.window, node));
+
+  const panel = doc.createElement('div');
+  panel.setAttribute('role', 'listbox');
+  panel.textContent = '添加文件 文件 目标 计划';
+  doc.body.appendChild(panel);
+
+  assert.equal(scroller.scrollTop, 0, 'the transcript starts wherever it was');
+  debug.syncAttachPanel();
+  assert.equal(scroller.scrollTop, 900, 'and is sent to its end as the panel opens');
+  assert.equal(debug.state.transcriptScrolled, 1, 'counted, so the panel can report it');
 });
 
 test('a client re-insert of the chip is undone without waiting for a frame', async () => {
@@ -900,4 +1157,265 @@ test('the popover clamp keeps a menu inside the viewport and below the header', 
   // A menu overflowing the bottom slides up, but the header still wins.
   assert.deepEqual(plain(shift({ top: 700, bottom: 900, left: 20, right: 370, height: 200 }, 390, 844, 87)),
     { x: 0, y: -64 });
+});
+
+test('the add button is a switch, and the composer is not left holding the keyboard', async () => {
+  // Measured on the phone page: the client never writes aria-expanded=true, tapping the button a
+  // second time leaves its panel up (only Escape closes it), and the tap focuses the composer,
+  // which raises the soft keyboard over the very button that would close the panel again.
+  const page = await mountShell({});
+  const debug = page.window.__PULSE_SHELL_DEBUG__;
+  const doc = page.document;
+  const attach = doc.getElementById('official-attach');
+  const composer = doc.querySelector('textarea');
+
+  debug.syncAttach();
+  assert.equal(debug.attachControl(), attach,
+    'the attach control is found by its accessible name, and it is the client\u2019s own button');
+  assert.equal(attach.classList.contains('pulse-attach-target'), true);
+  assert.equal(debug.uploadControl().getAttribute('data-pulse-upload'), '',
+    'and the upload control is put beside it');
+  assert.equal(debug.uploadControl().previousElementSibling, attach,
+    'immediately after the attach button, in the composer\u2019s own cluster');
+
+  // No panel yet: nothing is marked open.
+  debug.syncAttachPanel();
+  assert.equal(doc.documentElement.classList.contains('pulse-attach-open'), false);
+  assert.equal(attach.classList.contains('pulse-attach-open-button'), false);
+
+  // The client shows its panel, with the composer holding the focus the tap gave it.
+  const panel = doc.createElement('div');
+  panel.setAttribute('role', 'listbox');
+  // The panel is identified by its own vocabulary, exactly like the button: the model picker is a
+  // listbox too, so a bare one would not be recognised — and the fixture has to say what the real
+  // panel says, or these tests would pass on a panel the shell would never act on.
+  panel.textContent = '添加文件 文件 目标 计划';
+  doc.body.appendChild(panel);
+  composer.focus();
+  assert.equal(doc.activeElement, composer, 'the composer is focused before the panel appears');
+
+  // No button was pressed to open this one (that is what the null state means), so the shell
+  // touches nothing: a panel opened by typing "/" must not have its keyboard taken away.
+  debug.syncAttachPanel();
+  assert.equal(doc.documentElement.classList.contains('pulse-attach-open'), true,
+    'the root is marked, which is what turns the drawn + into a close mark and caps the panel');
+  assert.equal(attach.classList.contains('pulse-attach-open-button'), true);
+  assert.equal(attach.getAttribute('aria-expanded'), 'true',
+    'and the accessibility state is corrected, because the client leaves it saying false');
+  assert.equal(doc.activeElement, composer, 'an unarmed panel does not move the keyboard');
+
+  // The toggle itself: a tap while the panel is open must ask the client to close it, and must
+  // not let the tap through to whatever the client does with it. Two asks go out, because the
+  // client's own handler is not where it looks like it is: Escape at the composer (where a real
+  // Escape lands and where the key handler lives) and a click on the body (outside the panel,
+  // which is the other thing measured to close it).
+  const escapeHeard = [];
+  composer.addEventListener('keydown', event => escapeHeard.push(event.key));
+  let outsideClicks = 0;
+  doc.body.addEventListener('click', () => { outsideClicks += 1; });
+  let prevented = false;
+  // Capture, and registered after the shell's own capture listener: stopPropagation() stops the
+  // event further down the tree but never silences another listener on the node it was stopped
+  // at, so this is the only place from which "it was prevented" can still be observed.
+  doc.addEventListener('click', event => {
+    if (event.defaultPrevented && !event.__pulseAttachClose) prevented = true;
+  }, true);
+  const tap = node => node.dispatchEvent(new page.window.MouseEvent('click', {
+    bubbles: true, cancelable: true,
+  }));
+  tap(attach);
+  assert.deepEqual(escapeHeard, ['Escape'], 'the composer is asked to close the panel');
+  assert.equal(outsideClicks, 1, 'and a click outside the panel goes out as the second ask');
+  assert.equal(prevented, true, 'and the tap stops there instead of reaching the client');
+
+  // The client takes its panel away; the marks go with it.
+  panel.remove();
+  debug.syncAttachPanel();
+  assert.equal(doc.documentElement.classList.contains('pulse-attach-open'), false);
+  assert.equal(attach.classList.contains('pulse-attach-open-button'), false);
+  assert.equal(attach.getAttribute('aria-expanded'), 'false');
+});
+
+test('a composer button tap never gets as far as the keyboard', async () => {
+  // The phone showed the keyboard rise and drop when a button in the composer's row was tapped:
+  // the client focuses the composer on press, so blurring afterwards is visible. The refusal is
+  // armed by the press and spent inside the focus event itself, in the same task, which is the
+  // only place the keyboard can be stopped before it starts to appear.
+  const page = await mountShell({});
+  const debug = page.window.__PULSE_SHELL_DEBUG__;
+  const doc = page.document;
+  const attach = doc.getElementById('official-attach');
+  const composer = doc.querySelector('textarea');
+
+  // A press is a press: pointerdown arrives first on a touch screen, before focus and before click.
+  attach.dispatchEvent(new page.window.Event('pointerdown', { bubbles: true }));
+  assert.ok(debug.state.rowPointerAt > 0, 'the press arms the refusal');
+
+  composer.focus();
+  assert.notEqual(doc.activeElement, composer,
+    'the focus the client asked for is handed straight back, so no keyboard');
+  assert.equal(debug.state.keyboardRefused, 1, 'and it is counted, so the panel can report it');
+
+  // A tap on the input itself is the user *asking* for the keyboard, and must keep working. With
+  // no panel open there is nothing to hold the keyboard down for.
+  debug.state.rowPointerAt = 0;
+  composer.focus();
+  assert.equal(doc.activeElement, composer, 'typing is not broken by the refusal');
+
+  // The add button is the one control allowed to change the keyboard, and it does it on purpose:
+  // collapsing the keyboard is what lets the message box reach the bottom of the screen and the
+  // panel take the space above it. So a press with the keyboard open records "closed" and the open
+  // transition blurs - the refusal then keeps it down while the panel is open.
+  composer.focus();
+  debug.state.rowPointerAt = 0;
+  attach.dispatchEvent(new page.window.Event('pointerdown', { bubbles: true }));
+  assert.equal(debug.state.composerWasFocused, false,
+    'the add button records the keyboard as closed, whatever it was before');
+  composer.blur();
+  composer.focus();
+  assert.notEqual(doc.activeElement, composer, 'so a focus it asks for is refused');
+  assert.equal(debug.state.keyboardRefused, 2, 'and it is counted');
+
+  // A button that is *not* the add button still changes nothing: the mode and permission chips are
+  // in the same row and must leave the keyboard exactly where they found it.
+  const chip = doc.createElement('button');
+  chip.setAttribute('aria-label', '选择模型');
+  attach.parentElement.appendChild(chip);
+  composer.blur();
+  debug.state.rowPointerAt = 0;
+  chip.dispatchEvent(new page.window.Event('pointerdown', { bubbles: true }));
+  assert.equal(debug.state.composerWasFocused, false, 'a closed keyboard is recorded as closed');
+  composer.focus();
+  assert.notEqual(doc.activeElement, composer, 'and the refusal keeps it closed');
+  composer.blur();
+  composer.focus();
+  debug.state.rowPointerAt = 0;
+  chip.dispatchEvent(new page.window.Event('pointerdown', { bubbles: true }));
+  assert.equal(debug.state.composerWasFocused, true, 'an open one is recorded as open');
+  assert.equal(doc.activeElement, composer, 'and is left untouched');
+  chip.remove();
+
+  // With the panel open and the keyboard *closed* at the press, the refusal holds for as long as
+  // the panel is open — not just for the next 700ms. That is the difference between the phone's
+  // "sometimes it pops" and "it never pops": a client that focuses late is still refused.
+  const panel = doc.createElement('div');
+  panel.setAttribute('role', 'listbox');
+  // The panel is identified by its own vocabulary, exactly like the button: the model picker is a
+  // listbox too, so a bare one would not be recognised — and the fixture has to say what the real
+  // panel says, or these tests would pass on a panel the shell would never act on.
+  panel.textContent = '添加文件 文件 目标 计划';
+  doc.body.appendChild(panel);
+  debug.state.rowPointerAt = 0;
+  debug.state.composerWasFocused = false;
+  debug.syncAttachPanel();
+  debug.state.rowPointerAt = Date.now() - 5000;
+  const beforeLate = debug.state.keyboardRefused;
+  composer.blur();
+  composer.focus();
+  assert.notEqual(doc.activeElement, composer,
+    'a late focus is refused too, because the panel is still open and the keyboard was closed');
+  assert.equal(debug.state.keyboardRefused, beforeLate + 1, 'and it is counted separately');
+
+  // ... and once the panel is gone the composer is the user's again.
+  panel.remove();
+  debug.syncAttachPanel();
+  assert.equal(debug.state.composerWasFocused, null, 'the decision is forgotten with the panel');
+  composer.focus();
+  assert.equal(doc.activeElement, composer, 'and a later tap on the input works as it always did');
+});
+
+test('the panel is capped to the room above the composer, and re-capped when it moves', async () => {
+  // The request in the user's words: the buttons are their own block, if it does not fit it
+  // scrolls inside itself, and it must not occupy the message box. jsdom has no layout, so the
+  // geometry is supplied here — what is being tested is the arithmetic and *when* it runs, not
+  // whether a browser can measure a box.
+  const page = await mountShell({});
+  const debug = page.window.__PULSE_SHELL_DEBUG__;
+  const doc = page.document;
+  const attach = doc.getElementById('official-attach');
+  const panel = doc.createElement('div');
+  panel.setAttribute('role', 'listbox');
+  // The panel is identified by its own vocabulary, exactly like the button: the model picker is a
+  // listbox too, so a bare one would not be recognised — and the fixture has to say what the real
+  // panel says, or these tests would pass on a panel the shell would never act on.
+  panel.textContent = '添加文件 文件 目标 计划';
+  doc.body.appendChild(panel);
+  const box = (top, bottom, height) => () => ({
+    top, bottom, height, left: 0, right: 44, width: 44, x: 0, y: top,
+  });
+  const panelBox = { top: 100, bottom: 520 };
+  panel.getBoundingClientRect = () => ({
+    ...panelBox, height: panelBox.bottom - panelBox.top, left: 0, right: 350, width: 350, x: 0, y: panelBox.top,
+  });
+  attach.getBoundingClientRect = box(500, 540, 40);
+
+  debug.syncAttachPanel();
+  assert.equal(debug.state.attachOpen, true);
+  // The cap is the room between the header (8px below it) and the composer's button row (500 - 6),
+  // so 486 — and the 26px the panel already reaches past that line comes off it. The message box in
+  // between is deliberately *not* a boundary any more: the panel may cover it, and doing so is what
+  // gives it room with the keyboard up. What must stay clear is the row of buttons.
+  assert.equal(doc.documentElement.style.getPropertyValue('--pulse-attach-room'), '460px',
+    'the cap is the room above the button row, minus whatever the panel already overflows by');
+  assert.equal(debug.state.attachTightened, 26, 'and the overshoot is reported, not hidden');
+
+  // The row moves — the keyboard lifts it, or the composer wraps to two lines — and the cap has
+  // to follow, because a cap taken once is exactly how the panel left the buttons buried.
+  attach.getBoundingClientRect = box(300, 340, 40);
+  panelBox.bottom = 320;
+  debug.capAttachPanel();
+  // 8 below the header to 294, so 286, and the same 26px overshoot comes off: 260.
+  assert.equal(doc.documentElement.style.getPropertyValue('--pulse-attach-room'), '260px',
+    'measured again from where the row is now');
+
+  // Nothing open: the cap never touches the page.
+  panel.remove();
+  debug.syncAttachPanel();
+  debug.capAttachPanel();
+  assert.equal(doc.documentElement.style.getPropertyValue('--pulse-attach-room'), '260px',
+    'a closed panel leaves the last cap alone rather than writing a new one');
+});
+
+test('the upload control drives a file input, which is what the App answers', async () => {
+  // The App's camera/photos/files sheet is behind a file input, and the client's composer has no
+  // upload control at phone width — measured: its add panel's 文件 entry clicks zero file inputs,
+  // because it means "reference a workspace file". So this button has to reach an input itself.
+  const page = await mountShell({});
+  const debug = page.window.__PULSE_SHELL_DEBUG__;
+  const doc = page.document;
+  debug.syncAttach();
+
+  // First: the client's own input, when it has one. Clicking it is the whole point — the client's
+  // change handler then does what the desktop's upload does.
+  const clientInput = doc.createElement('input');
+  clientInput.setAttribute('type', 'file');
+  let clientClicks = 0;
+  clientInput.addEventListener('click', () => { clientClicks += 1; });
+  doc.body.appendChild(clientInput);
+
+  const tap = node => node.dispatchEvent(new page.window.MouseEvent('click', {
+    bubbles: true, cancelable: true,
+  }));
+  tap(debug.uploadControl());
+  assert.equal(clientClicks, 1, 'the client\u2019s own file input is clicked, exactly once');
+
+  // Second: no input of the client's, so one of ours is created rather than nothing happening.
+  clientInput.remove();
+  tap(debug.uploadControl());
+  const own = doc.querySelector('input[data-pulse-upload-input]');
+  assert.ok(own, 'our own input is created when the client has none');
+  assert.equal(own.getAttribute('type'), 'file');
+});
+
+test('the stylesheet turns the add button into a switch and caps its panel', () => {
+  // Both halves are CSS, and both are load-bearing: the rotation is the only thing that makes a
+  // `+` read as "tap to close", and the cap is what stops the panel from covering the composer
+  // row it has to be closed from. A rule that silently stops matching would look like a client
+  // change rather than a broken rule, so the text is asserted rather than eyeballed.
+  const css = mobileShellStyles();
+  assert.match(css, /\.pulse-attach-open-button svg\s*\{[^}]*rotate\(45deg\)/,
+    'the drawn + becomes a close mark by rotating the client\u2019s own glyph');
+  assert.match(css, /html\.pulse-attach-open \[role="listbox"\]\s*\{[^}]*max-height:\s*var\(--pulse-attach-room/,
+    'and the panel is capped to the room above the composer, scrolling inside itself');
+  assert.match(css, /\.pulse-upload\s*\{[^}]*width:\s*40px/, 'the upload control has a real hit area');
 });

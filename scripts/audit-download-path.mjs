@@ -15,7 +15,7 @@
  * Those two possibilities need different fixes, and the difference is invisible
  * from the phone, so it is read out of the bytes the phone actually downloads.
  *
- * @module pulse-remote/scripts/audit-download-path
+ * @module dsh-remote-pulse/scripts/audit-download-path
  */
 
 import { localHeaders } from './local-operator.mjs';

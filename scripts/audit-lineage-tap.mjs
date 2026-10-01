@@ -24,7 +24,7 @@
  * where, which is the difference between "the shell places it wrongly" and "the client and
  * the shell are taking turns".
  *
- * @module pulse-remote/scripts/audit-lineage-tap
+ * @module dsh-remote-pulse/scripts/audit-lineage-tap
  */
 
 import { existsSync } from 'node:fs';
@@ -51,6 +51,8 @@ const churnMs = Number(flag('--churn-ms', '80'));
 const hold = Number(flag('--hold', '70'));
 /** How far the finger wanders during the tap, in px. */
 const jitter = Number(flag('--jitter', '0'));
+/** Keep tapping the chip itself, with nothing in between — the toggle, not just the open. */
+const repeat = args.includes('--repeat');
 
 const BROWSERS = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -137,8 +139,12 @@ try {
       await new Promise(r => setTimeout(r, 900));
     }
     const rows = [...document.querySelectorAll('[class*="_sessionRow"], [class*="_listArea"] [role="button"]')];
-    const pattern = window.__PULSE_WANTED__ === 'warden' ? /世界|warden|逃亡/ : /手机遥控|WorkBuddy|Pulse|下载/;
-    const picked = rows.find(node => pattern.test(node.textContent || '')) || rows[0];
+    // `any` opens the first row, which is the most recently used conversation — what the
+    // measurement needs when the session's own title is not known in advance.
+    const wanted = window.__PULSE_WANTED__;
+    const pattern = wanted === 'any' ? null
+      : (wanted === 'warden' ? /世界|warden|逃亡/ : /手机遥控|WorkBuddy|Pulse|下载/);
+    const picked = (pattern ? rows.find(node => pattern.test(node.textContent || '')) : null) || rows[0];
     window.__PULSE_PICKED__ = picked ? (picked.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) : '(none)';
     if (picked) picked.click();
   });
@@ -198,6 +204,23 @@ try {
   const panelOpen = () => page.evaluate(() => [...document.querySelectorAll('[class*="ZKlsPq_menu"]')]
     .some(node => node.getBoundingClientRect().height > 40));
 
+  /**
+   * What the panel says about itself, so "did it close" can be read from the control rather
+   * than from the panel's pixels alone. The trigger is the only ARIA contract here, and the
+   * shell's close-on-second-tap keys off it — which makes its meaning worth measuring.
+   */
+  const expanded = () => page.evaluate(() => {
+    const slot = document.querySelector('[data-slot*="header.lineage"]');
+    const trigger = slot ? slot.querySelector('button') : null;
+    const panel = [...document.querySelectorAll('[class*="ZKlsPq_menu"]')]
+      .find(node => node.getBoundingClientRect().height > 40);
+    return {
+      aria: trigger ? trigger.getAttribute('aria-expanded') : '(没有触发器)',
+      panel: Boolean(panel),
+      haspopup: trigger ? trigger.getAttribute('aria-haspopup') : '',
+    };
+  });
+
   if (churn) {
     await page.evaluate(ms => {
       const home = () => document.querySelector('[class*="_crumbSeg"]')
@@ -229,6 +252,41 @@ try {
     for (const type of ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'mouseover',
       'mouseout', 'mousedown', 'mouseup', 'click']) record(type);
   });
+  /**
+   * A run of taps on the chip and on nothing else.
+   *
+   * This is the sequence a thumb actually produces when it is playing with a control, and it
+   * is the one that broke: once the panel has been closed, the browser still believes the
+   * pointer is on that same element, so it never sends another mouseover — and a control that
+   * opens on hover therefore goes deaf after its first close. Measured as `open, closed,
+   * closed, closed` before the shell took over both halves of the toggle.
+   */
+  if (repeat) {
+    const target = await findTrigger();
+    if (target.missing) {
+      console.log('这一屏没有子代理 chip，连点那一段没跑');
+    } else {
+      const sequence = [];
+      for (let index = 1; index <= taps; index += 1) {
+        await tap(target.x, target.y);
+        await new Promise(r => setTimeout(r, 900));
+        const state = await expanded();
+        sequence.push(state.panel ? 'open' : 'closed');
+        process.stdout.write(`  第 ${index} 次连点 → ${state.panel ? '开着' : '关着'}`
+          + ` (aria=${state.aria})\n`);
+      }
+      console.log(`\n连点 ${taps} 次的序列：${sequence.join(' → ')}`);
+      const alternates = sequence.every((state, index) => (index === 0
+        ? state === 'open'
+        : state !== sequence[index - 1]));
+      console.log(alternates
+        ? '  每一次都在开/关之间切换 ✓'
+        : '  ✗ 有一步没有反应（这正是"后面再点没反应"）');
+      if (!alternates) process.exitCode = 1;
+      const moves = await page.evaluate(() => window.__MOVES__);
+      console.log(`  期间芯片被搬动 ${moves.length} 次`);
+    }
+  } else {
   for (let attempt = 1; attempt <= taps; attempt += 1) {
     // Close it the way a finger does: mouseout (what the hover popover listens for) plus a
     // tap on empty strip. Removing React's node by hand would leave React holding a node it
@@ -254,22 +312,47 @@ try {
     await tap(target.x, target.y);
     await new Promise(r => setTimeout(r, 900));
     const openedNow = await panelOpen();
+    const afterOpen = await expanded();
+    // The reported bug gets its own measurement: a second tap on the same chip does not close
+    // the panel, while tapping the conversation tab does. The panel opens on *hover* (150ms)
+    // and closes on mouseout, and on a touch screen a second tap on the same element produces
+    // no mouseout — so "opens but will not close" is what that design does on a phone.
+    let second = null;
+    if (openedNow) {
+      await tap(target.x, target.y);
+      await new Promise(r => setTimeout(r, 900));
+      second = { stillOpen: await panelOpen(), ...(await expanded()) };
+    }
     const events = await page.evaluate(() => {
       const seen = window.__EV__.slice();
       window.__EV__ = [];
       return seen.map(event => `${event.type}${event.chip ? '(chip)' : ''}`);
     });
-    results.push({ attempt, at: target, opened: openedNow, closed, events });
+    results.push({ attempt, at: target, opened: openedNow, closed, events, afterOpen, second });
     process.stdout.write(`  #${attempt} tap (${target.x},${target.y}) ${target.w}x${target.h}`
       + ` via ${target.via} (closed before=${closed}) -> ${openedNow ? 'OPENED' : 'did not open'}`
+      + ` [aria=${afterOpen.aria} panel=${afterOpen.panel}]`
+      + `\n        再点一次：${second ? (second.stillOpen ? '还是开着' : '关掉了') : '(没开，没测)'}`
+      + `${second ? ` [aria=${second.aria} panel=${second.panel}]` : ''}`
       + `\n        events: ${events.join(' ')}\n`);
   }
   if (churn) await page.evaluate(() => { window.clearInterval(window.__CHURN__); });
 
   const answered = results.filter(result => !result.missing);
   const openedCount = answered.filter(result => result.opened).length;
+  const toggled = answered.filter(result => result.second && !result.second.stillOpen).length;
+  const triedSecond = answered.filter(result => result.second).length;
   console.log(`\nopened ${openedCount}/${answered.length}`
     + ` (hold=${hold}ms jitter=${jitter}px churn=${churn ? churnMs + 'ms' : 'off'})`);
+  console.log(`closed by a second tap on the same chip: ${toggled}/${triedSecond}`);
+  // A second tap that never closes anything is the reported bug, and it is a contract with the
+  // client (aria-expanded) rather than with our own code: if the client stops reporting that
+  // attribute, the shell's close goes quiet and only this measurement would notice.
+  if (triedSecond > 0 && toggled === 0) {
+    console.log('  ✗ 点了第二次一次都没关掉 —— 客户端可能不再报 aria-expanded，外壳那半失效了');
+    process.exitCode = 1;
+  }
+  }
 
   const moves = await page.evaluate(() => window.__MOVES__);
   const summary = new Map();

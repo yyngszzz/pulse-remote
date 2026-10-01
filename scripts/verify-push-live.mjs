@@ -6,10 +6,10 @@
  * public key, and the push routes — the things a phone needs in order to show
  * lock-screen notifications while the screen is off.
  *
- *   node scripts/verify-push-live.mjs https://203.0.113.10 [--insecure]
+ *   node scripts/verify-push-live.mjs https://YOUR_HOST [--insecure]
  */
 
-const rawBase = process.argv[2] ?? 'https://203.0.113.10';
+const rawBase = process.argv[2] ?? 'https://YOUR_HOST';
 const insecure = process.argv.includes('--insecure');
 if (insecure) process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 

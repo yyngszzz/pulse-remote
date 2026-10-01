@@ -1,5 +1,5 @@
 {
-  "name": "pulse-remote",
+  "name": "dsh-remote-pulse",
   "version": "0.1.0",
   "description": "Pulse — put DeepSeek Harness in your pocket with signal, not noise: semantically distilled agent activity, a decisions queue you can answer from the phone, and a task-completion push loop for when you are away.",
   "type": "module",

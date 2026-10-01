@@ -21,7 +21,7 @@
  * It also prints the official stylesheet's own gesture rules, because the answer
  * is often there rather than in our layer.
  *
- * @module pulse-remote/scripts/audit-gestures
+ * @module dsh-remote-pulse/scripts/audit-gestures
  */
 
 import { existsSync } from 'node:fs';

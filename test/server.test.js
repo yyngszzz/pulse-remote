@@ -197,6 +197,41 @@ function sseReader(stream) {
   };
 }
 
+test('the backend tells an open page which process it is talking to', async () => {
+  // The mobile shell is snapshotted into the page when the plugin loads and a phone keeps its
+  // page for days, so after a restart that page is talking to a process that no longer exists:
+  // everything delivered as *state* (a pending question, a re-rendered transcript) never
+  // arrives, and it reads as "it didn't render" while a freshly loaded tab is fine. This id is
+  // what lets the page notice — and it has to be stable within one process, or every poll
+  // would reload the page forever.
+  const h = await harness();
+  try {
+    const first = await fetch(`${h.base}/pulse-boot`);
+    assert.equal(first.status, 200);
+    assert.match(first.headers.get('content-type'), /application\/json/);
+    assert.match(first.headers.get('cache-control') ?? '', /no-store/, 'a cached answer is a useless answer');
+    const body = await first.json();
+    assert.equal(typeof body.id, 'string');
+    assert.ok(body.id.length >= 8, `the id must be substantial, got ${JSON.stringify(body.id)}`);
+
+    const second = await (await fetch(`${h.base}/pulse-boot`)).json();
+    assert.equal(second.id, body.id, 'the same process must give the same answer');
+
+    // Public on purpose: a page whose session has been revoked still needs to learn that the
+    // backend it was talking to was replaced, and the id is not a secret. Per *server* rather
+    // than per process, so a live plugin remount also counts as a replacement.
+    const unpaired = await harness({ devices: [] });
+    try {
+      const other = await (await fetch(`${unpaired.base}/pulse-boot`)).json();
+      assert.notEqual(other.id, body.id, 'a different server is a different id');
+    } finally {
+      await unpaired.close();
+    }
+  } finally {
+    await h.close();
+  }
+});
+
 test('the root is a pairing gate, and the console lives at /pulse', async () => {
   const h = await harness();
   try {

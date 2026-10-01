@@ -429,7 +429,7 @@ test('the workspace name rides every frame, so a phone can say which project', a
     // The expectation is derived from the path instead of being written out: what is
     // under test is "the workspace name rides every frame", and a frozen copy of the
     // author's directory name made this test fail on any other checkout.
-    const workspace = 'D:\\code';
+    const workspace = 'D:\\deepseek harness';
     const expectedProject = workspace.split('\\').pop();
     const session = { id: 's1', header: { cwd: workspace } };
 
@@ -461,9 +461,9 @@ test('a subagent session is marked as delegated, so a phone can stay quiet about
     await p.emit('agent/created', { agent: fakeAgent('sub', 'running') });
 
     // The live session's header is where the log keeps this, alongside the cwd.
-    await p.emit('session/event', { id: 'main', header: { cwd: 'D:\\code', delegationDepth: 0 } },
+    await p.emit('session/event', { id: 'main', header: { cwd: 'D:\\deepseek harness', delegationDepth: 0 } },
       { type: 'turn/end', data: { turn: 1, reason: 'success' } });
-    await p.emit('session/event', { id: 'sub', header: { cwd: 'D:\\code', delegationDepth: 1 } },
+    await p.emit('session/event', { id: 'sub', header: { cwd: 'D:\\deepseek harness', delegationDepth: 1 } },
       { type: 'turn/end', data: { turn: 1, reason: 'success' } });
 
     const frames = service.ring.tail(10);

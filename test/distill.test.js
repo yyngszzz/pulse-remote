@@ -68,7 +68,7 @@ test('a subagent frame says so, and a top-level one stays quiet about it', () =>
 });
 
 test('shortPath keeps only the last segments', () => {
-  assert.equal(shortPath('D:\\code\\src\\lib\\index.ts'), 'lib/index.ts');
+  assert.equal(shortPath('D:\\deepseek harness\\src\\lib\\index.ts'), 'lib/index.ts');
   assert.equal(shortPath('/home/user/project/file.js'), 'project/file.js');
   assert.equal(shortPath('/single'), 'single');
   assert.equal(shortPath(''), '');

@@ -23,7 +23,7 @@
  * something is that taking the placement away puts the title back to zero and makes the
  * rows overlap again — measured in the same page, in both directions, so it can fail.
  *
- * @module pulse-remote/scripts/verify-header-actions
+ * @module dsh-remote-pulse/scripts/verify-header-actions
  */
 
 import { existsSync } from 'node:fs';
@@ -470,11 +470,43 @@ try {
   // restart the live chip is gone, measured, and every check here would quietly turn into a
   // skip. So when there is no live chip the slot is **planted** in the real header with the
   // client's own markup (a display:contents wrapper, the ZKlsPq root, the separator and the
-  // trigger) and the same assertions run against that. It is our node, so it is removed at
-  // the end; a check that only ever runs on a lucky page is not much of a check.
+  // trigger) and the same assertions run against that. It is our node, so it is taken back
+  // out again before the checks that follow.
+  //
+  // The count arrives with the session's subagent data, *after* the conversation does, so it
+  // is given time to appear before a stand-in is planted. Planting too early puts a second
+  // slot in the header, and every measurement after that is about two chips: measured, the
+  // fixture and the real count together came to 284px of chips against 202px of room, and the
+  // shell correctly declined to move anything — a probe artefact that reads exactly like a
+  // product failure.
   let lineageView = placed;
   let planted = null;
   if (!placed.lineage.visible) {
+    // Long enough for the count to arrive with the session's subagent data, which is slower
+    // than the conversation itself: measured, it appeared well after the first measurement
+    // and a shorter wait had already put a stand-in in the header.
+    const appeared = await page.evaluate(async () => {
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const slot = document.querySelector('[data-slot*="header.lineage"]');
+        const content = slot && slot.firstElementChild;
+        if (content && content.getBoundingClientRect().width > 0) return true;
+        await new Promise(r => setTimeout(r, 200));
+      }
+      return false;
+    });
+    if (appeared) {
+      // It was only late, not absent: the real chip is the subject.
+      await new Promise(r => setTimeout(r, 400));
+      lineageView = await measure(page);
+    } else if (!args.includes('--plant-lineage')) {
+      // Planting is opt-in, and that is a correction rather than a preference: the slot goes
+      // into the first crumb segment, which can sit *before* the real one in the document, and
+      // the shell takes the first match it finds — so a stand-in planted on a page that also
+      // has a real count makes the shell move the stand-in and ignore the real chip. Measured:
+      // exactly that, with the checks then failing against a header no client renders.
+      skips.push('这一屏没有真的子代理 chip（会话里没有子代理），子代理那几条没跑；'
+        + '要拿替身测请加 --plant-lineage（替身只测搬运本身，不代表页面上真有子代理）');
+    } else {
     const plant = await page.evaluate(() => {
       const header = document.querySelector('header[class*="_header"]');
       const home = header ? header.querySelector('[class*="_crumbSeg"]') : null;
@@ -499,12 +531,33 @@ try {
       skips.push(`这一屏没有真的子代理 chip（DSH 重启后列表就空了），改用放进 ${plant.home} 的替身`
         + `（官方标记一模一样：data-slot + ZKlsPq 结构）`);
     }
+    }
   }
 
   if (!lineageView.lineage.visible) {
     skips.push('子代理 chip 既没有真的、也没放成，那几条没跑');
   } else if (cannotFit) {
     skips.push('这一屏的 chip 放不下，子代理 chip 也没得搬，那几条没跑');
+  } else if (lineageView.guard.state === 'partial') {
+    // Three chips (mode + jobs + subagent count) need about 283px of a 202px strip, measured,
+    // and no amount of truncation closes that. So the shell picks by priority: the action
+    // wrapper takes the strip, the count keeps the crumb row the client gave it. What matters
+    // here is that the *title* stays readable — declining everything (what this did before)
+    // put all three back in the title row and squeezed the session title to a measured 0px,
+    // which is exactly what the phone showed as "the top is a mess".
+    record('三个 chip 放不下时：模式/任务 chip 进页签行，子代理数留在标题行旁边（标题还有宽度）',
+      !lineageView.lineage.inGroup
+      && lineageView.lineage.parent.includes('crumb')
+      && lineageView.lineage.separator !== 'none'
+      && lineageView.items.some(item => item.kind === '模式/任务' && item.inGroup)
+      && Boolean(lineageView.crumbs && lineageView.crumbs.width > 60),
+      `状态=${lineageView.guard.state} 子代理在组里=${lineageView.lineage.inGroup}`
+      + `（在 ${lineageView.lineage.parent}）模式 chip 在组里=`
+      + `${lineageView.items.some(item => item.kind === '模式/任务' && item.inGroup)}`
+      + ` 标题容器=${lineageView.crumbs ? lineageView.crumbs.width : '?'}px`
+      + ` 组里依次是 ${lineageView.groupChildren.join(' , ')}`);
+    skips.push('这一屏是"三个 chip 放不下"的那种（模式 + 后台任务 + 子代理数），'
+      + '所以「子代理也在页签行里」那几条按设计不适用');
   } else {
     record('子代理 chip 也被搬进了页签行，就在模式 chip 前面',
       lineageView.lineage.inGroup && lineageView.lineage.index === 0,
@@ -594,6 +647,26 @@ try {
         + `再搬后 在组里=${lineageAb.moved.inGroup} top=${lineageAb.moved.top}`
         + ` 在页签行上面=${lineageAb.moved.aboveStrip} 斜杠=${lineageAb.moved.separator}`);
     }
+  }
+
+  // The planted stand-in goes back out here, before anything else is measured: it is our
+  // node, and a second lineage slot in the header makes the checks that follow measure a
+  // header no client renders (desktop hand-back, rotation, tab switch all read the group).
+  if (planted) {
+    const removed = await page.evaluate(() => {
+      const slot = window.__PULSE_PLANTED_LINEAGE__;
+      if (!slot) return { removed: false, slots: 0 };
+      if (slot.parentElement) slot.parentElement.removeChild(slot);
+      window.__PULSE_SHELL_DEBUG__.syncHeaderActions();
+      return {
+        removed: true,
+        slots: document.querySelectorAll('header [data-slot*="header.lineage"]').length,
+      };
+    }).catch(() => ({ removed: false, slots: -1 }));
+    await new Promise(r => setTimeout(r, 200));
+    record('（清理）放进去的替身 chip 已经拿掉，页头回到客户端自己的样子',
+      removed.removed && removed.slots <= 1,
+      `拿掉=${removed.removed}，页头里还剩 ${removed.slots} 个 lineage 槽`);
   }
 
   record('chip 在屏幕上是可点的（那一点最上面的就是它）',
@@ -870,6 +943,30 @@ try {
   // the phone: with the container at 5 the transcript painted *over* the open job list.
   // The group is a flow child with no z-index, so the menu keeps its own — asserted here,
   // and the assertion is proven able to fail by planting a rival at z-index 101.
+  //
+  // The subagent panel is closed first. It is a fixed portal carrying the same z-index as the
+  // jobs menu, and an earlier check leaves it open; with both open the later one in the DOM
+  // wins, measured as the subagent list covering the job rows — which reads as a stacking bug
+  // in the moved chips and is in fact two official popovers overlapping. The precondition is
+  // asserted rather than assumed.
+  const panelClosed = await page.evaluate(async () => {
+    const slot = document.querySelector('[data-slot*="header.lineage"]');
+    const root = slot && slot.firstElementChild;
+    if (root) {
+      root.dispatchEvent(new MouseEvent('mouseout', {
+        bubbles: true, cancelable: true, relatedTarget: document.body,
+      }));
+    }
+    const still = () => [...document.querySelectorAll('[class*="ZKlsPq_menu"]')]
+      .some(node => node.getBoundingClientRect().height > 40);
+    for (let attempt = 0; attempt < 10 && still(); attempt += 1) {
+      await new Promise(r => setTimeout(r, 150));
+    }
+    return !still();
+  }).catch(() => false);
+  record('（自校验）子代理面板先关掉，作业菜单那几条测的才是它自己',
+    panelClosed, panelClosed ? '面板已关闭' : '面板还开着，下面那条会被它盖住');
+
   const stack = await page.evaluate(mark => {
     const debug = window.__PULSE_SHELL_DEBUG__;
     const row = debug.headerRow();
@@ -1053,22 +1150,6 @@ try {
   }
 
   // ---- the contract this placement is copied from --------------------------
-  //
-  // The planted lineage slot goes first: it is our node, and leaving it in the real header
-  // would make the next probe measure a chip that no client rendered.
-  if (planted) {
-    const removed = await page.evaluate(() => {
-      const slot = window.__PULSE_PLANTED_LINEAGE__;
-      if (!slot) return false;
-      if (slot.parentElement) slot.parentElement.removeChild(slot);
-      window.__PULSE_SHELL_DEBUG__.syncHeaderActions();
-      return true;
-    }).catch(() => false);
-    record('（清理）放进去的替身 chip 已经拿掉，页头回到客户端自己的样子',
-      removed && (await measure(page)).items.every(item => !item.kind.startsWith('子代理')),
-      `拿掉=${removed}，现在要搬的 chip：${(await measure(page)).items.map(item => item.kind).join(' , ') || '(没有)'}`);
-  }
-
   const headerModule = await officialModule(base, cookie, '@deepseek-ai/dsh-client-ui-conversation');
   record('官方会话页头仍然是 titleRow / titleCluster / headerActions / tabs 这套类名',
     ['_titleRow{', '_titleCluster{', '_headerActions{', '_tabs{']

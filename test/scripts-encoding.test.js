@@ -206,3 +206,26 @@ test('no backtick hides inside an injected template literal', () => {
   const found = poisonedBodies.filter(body => body.includes('`')).length;
   assert.ok(found >= 1, `the scan must report the planted backtick, saw ${found} of ${poisonedBodies.length}`);
 });
+
+test('the shell still speaks its own language, character for character', () => {
+  // A round-trip through a PowerShell cmdlet cost this file every non-ASCII character once:
+  // `Get-Content -Raw` read UTF-8 as ANSI and `Set-Content -Encoding UTF8` wrote the result back,
+  // so 173 lines became mojibake. The code kept working — only comments and the strings the phone
+  // reads were ruined, which is exactly the kind of damage that survives a test suite. Two of them
+  // were not cosmetic: a mangled string ate its own closing quote and the module stopped parsing.
+  //
+  // So the guard is on the strings the user actually sees, in the words they are written in. It
+  // fails on mojibake, on a lost byte, and on a well-meaning but wrong re-translation, because
+  // each of those changes the text.
+  const source = readFileSync(join(scriptsDir, '..', 'lib', 'mobile-shell.js'), 'utf8');
+  const expected = [
+    "'收起侧边栏'", "open: '打开侧边栏',", '官方添加入口: ', '官方开关: ', '侧栏状态: ',
+    '已搬进页签行', '这一屏太窄，页签行放不下 chip', '从手机上传文件', '阅读区的呼吸感',
+    '找不到官方的「打开侧边栏」按钮',
+  ];
+  for (const literal of expected) {
+    assert.ok(source.includes(literal), `the source no longer contains ${literal}`);
+  }
+  // U+FFFD is what a decoder writes when it cannot read the bytes. It is never intentional here.
+  assert.equal(source.includes('\uFFFD'), false, 'no replacement character may survive in the source');
+});

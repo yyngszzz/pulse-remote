@@ -60,7 +60,7 @@ export function localToken(options = {}) {
       `  期望位置：${join(pulseStateDir(), 'local-token')}`,
       '',
       '这个令牌由 Pulse 插件在启动时创建。请确认：',
-      '  1) DSH 正在运行，且已加载 pulse-remote 插件；',
+      '  1) DSH 正在运行，且已加载 dsh-remote-pulse 插件；',
       '  2) DSH_HOME 指向同一个目录（当前：' + dshHome() + '）；',
       '  3) 或直接设置 PULSE_LOCAL_TOKEN 环境变量。',
     ].join('\n'),

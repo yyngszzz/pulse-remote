@@ -1,4 +1,4 @@
-# pulse-remote — bundle patch.
+# dsh-remote-pulse — bundle patch.
 #
 # One insert adds the Pulse host row to whichever profile mounts this package.
 # The row defaults to loopback-only: flipping `host` to '0.0.0.0' is the single
@@ -6,7 +6,7 @@
 # unpaired device receives nothing but the pairing gate.
 - insert:
     - id: remote-pulse
-      name: pulse-remote
+      name: dsh-remote-pulse
       config:
         host: '127.0.0.1'
         port: 3199

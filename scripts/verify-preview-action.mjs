@@ -17,7 +17,7 @@
  * — the transcript is virtualised, so on a narrow or freshly-loaded page there may be
  * none. That case is reported as `--` with the reason, never as a pass.
  *
- * @module pulse-remote/scripts/verify-preview-action
+ * @module dsh-remote-pulse/scripts/verify-preview-action
  */
 
 import { existsSync } from 'node:fs';
@@ -334,7 +334,7 @@ try {
     const host = document.createElement('div');
     host.id = 'pulse-preview-relative';
     host.innerHTML = '<div class="Zz_header"><div ' + marker + '="true" '
-      + 'title="pulse-remote/scripts/gone.mjs"></div></div>';
+      + 'title="dsh-remote-pulse/scripts/gone.mjs"></div></div>';
     document.body.appendChild(host);
     window.__PULSE_PREVIEW__ = false;
     // eslint-disable-next-line no-eval
@@ -355,7 +355,7 @@ try {
     const settle = () => new Promise(resolve => window.requestAnimationFrame(
       () => window.requestAnimationFrame(resolve)));
 
-    pathNode.setAttribute('title', 'D:\\code\\pulse-remote\\scripts\\gone.mjs');
+    pathNode.setAttribute('title', 'D:\\deepseek harness\\dsh-remote-pulse\\scripts\\gone.mjs');
     return settle().then(() => {
       const injected = host.querySelector('[' + button + ']');
       result.afterTitleUpdate = Boolean(injected);
@@ -365,7 +365,7 @@ try {
       // same file spelled with forward slashes on one side and backslashes on the
       // other, which left the button opening the spelling the header no longer showed.
       // A node that already exists must follow the title, not be skipped.
-      pathNode.setAttribute('title', 'D:/code/pulse-remote/scripts/gone.mjs');
+      pathNode.setAttribute('title', 'D:/deepseek harness/dsh-remote-pulse/scripts/gone.mjs');
       return settle().then(() => {
         const again = host.querySelector('[' + button + ']');
         result.sameNode = again === injected;
@@ -397,21 +397,21 @@ try {
     // the path it was created with, so it opened a spelling the header no longer showed.
     record('标题又改了之后（同一份文件换了个写法）按钮跟着改，而且是同一个节点',
       relative.sameNode === true && relative.nodeCount === 1
-      && relative.retargetedSource === 'D:/code/pulse-remote/scripts/gone.mjs'
-      && relative.retargetedHref.includes(encodeURIComponent('D:/code/pulse-remote/scripts/gone.mjs')),
+      && relative.retargetedSource === 'D:/deepseek harness/dsh-remote-pulse/scripts/gone.mjs'
+      && relative.retargetedHref.includes(encodeURIComponent('D:/deepseek harness/dsh-remote-pulse/scripts/gone.mjs')),
       `同一个节点=${relative.sameNode} 数量=${relative.nodeCount}`
       + ` source=${relative.retargetedSource} href=${String(relative.retargetedHref).slice(0, 60)}`);
     record('标题改回解析不出来的时候，按钮被撤掉（不能留个打不开的按钮）',
       await web.evaluate(({ marker, button, unresolved }) => {
         const host = document.createElement('div');
         host.innerHTML = '<div class="Zz_header"><div ' + marker + '="true" '
-          + 'title="D:\\code\\pulse-remote\\scripts\\gone.mjs"></div></div>';
+          + 'title="D:\\deepseek harness\\dsh-remote-pulse\\scripts\\gone.mjs"></div></div>';
         document.body.appendChild(host);
         return new Promise(resolve => {
           window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
             const pathNode = host.querySelector('[' + marker + ']');
             const had = Boolean(host.querySelector('[' + button + ']'));
-            pathNode.setAttribute('title', 'pulse-remote/scripts/gone.mjs');
+            pathNode.setAttribute('title', 'dsh-remote-pulse/scripts/gone.mjs');
             window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
               const gone = !host.querySelector('[' + button + ']');
               const marked = pathNode.hasAttribute(unresolved);

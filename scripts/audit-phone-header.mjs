@@ -10,7 +10,7 @@
  * "which official row could host what" — and that is answered by reading the real rows
  * rather than by guessing at them.
  *
- * @module pulse-remote/scripts/audit-phone-header
+ * @module dsh-remote-pulse/scripts/audit-phone-header
  */
 
 import { existsSync } from 'node:fs';

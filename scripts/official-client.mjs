@@ -24,7 +24,7 @@
  * come first — not to the one being asked about. The module is therefore cut out by
  * its loader id first, and a miss is reported rather than guessed at.
  *
- * @module pulse-remote/scripts/official-client
+ * @module dsh-remote-pulse/scripts/official-client
  */
 
 /** One fetch per base URL; the bundle is megabytes and never changes mid-run. */

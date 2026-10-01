@@ -17,7 +17,7 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 import { localHeaders } from './local-operator.mjs';
 
 const localBase = (process.argv[2] ?? 'http://127.0.0.1:3199').replace(/\/+$/, '');
-const PUBLIC_ORIGIN = 'https://203.0.113.10';
+const PUBLIC_ORIGIN = 'https://YOUR_HOST';
 
 const report = [];
 const log = (...parts) => {

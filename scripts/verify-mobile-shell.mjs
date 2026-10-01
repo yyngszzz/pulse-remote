@@ -1499,6 +1499,84 @@ try {
       trace.found ? `调用：${trace.calls.join(' / ') || '什么都没调用'}` : '找不到添加入口');
   }
 
+  // ---- the phone page cannot be zoomed ---------------------------------------
+  //
+  // Asked for directly. There are two halves — the viewport meta and touch-action — and only
+  // the second is enforced by Chromium at gesture time, so this drives a real pinch through CDP
+  // and reads the visual viewport's scale instead of trusting the declaration. The control is
+  // the same gesture with our half removed: without it, "scale stayed 1" would prove nothing.
+  const zoomCdp = await page.createCDPSession();
+  const pinchScale = async () => {
+    await zoomCdp.send('Input.synthesizePinchGesture', {
+      x: 195, y: 520, scaleFactor: 3, relativeSpeed: 800,
+    }).catch(() => {});
+    await new Promise(resolve => setTimeout(resolve, 700));
+    return page.evaluate(() => (window.visualViewport ? Number(window.visualViewport.scale.toFixed(2)) : -1));
+  };
+  const zoomMeta = await page.evaluate(() => {
+    const meta = document.querySelector('meta[name="viewport"]');
+    return {
+      content: meta ? meta.getAttribute('content') : '(没有)',
+      touch: getComputedStyle(document.documentElement).touchAction,
+      locked: document.documentElement.classList.contains('pulse-no-zoom'),
+    };
+  });
+  record('手机页面声明了不可缩放，并用 touch-action 真正拦住捏合',
+    zoomMeta.locked && /user-scalable=no/.test(zoomMeta.content) && /pan-x pan-y/.test(zoomMeta.touch),
+    `class=${zoomMeta.locked} content=「${zoomMeta.content}」 touch-action=${zoomMeta.touch}`);
+
+  const lockedScale = await pinchScale();
+  record('双指捏合之后页面没有放大（真的做了一次手势）',
+    lockedScale === 1, `visualViewport.scale=${lockedScale}`);
+
+  await page.evaluate(() => {
+    window.__PULSE_SHELL_DEBUG__.unlockViewportScale();
+    document.documentElement.style.touchAction = 'auto';
+    if (document.body) document.body.style.touchAction = 'auto';
+  });
+  const freeScale = await pinchScale();
+  record('（自校验）把我们那一半撤掉，同一个手势就能放大 → 上一条不是白过的',
+    freeScale > 1, `撤掉后 visualViewport.scale=${freeScale}`);
+
+  // ---- a page that outlived the process it came from -------------------------
+  //
+  // The shell is snapshotted into the page when the plugin loads, and a phone keeps its page
+  // for days: after a harness restart that page talks to a process that no longer exists, and
+  // everything delivered as *state* rather than as a stream — a pending question, a
+  // re-rendered transcript — never arrives. The user reads that as "it didn't render" or "it
+  // won't refresh" while the same conversation is fine in a freshly loaded tab, which is
+  // exactly what happened twice before this existed.
+  //
+  // Two halves are checked here: the endpoint that makes the difference measurable, and the
+  // reload itself, driven by pretending the backend was replaced (a real restart would end
+  // this probe's own session).
+  const bootA = await fetch(`${base}/pulse-boot`).then(r => (r.ok ? r.json() : null)).catch(() => null);
+  const bootB = await fetch(`${base}/pulse-boot`).then(r => (r.ok ? r.json() : null)).catch(() => null);
+  record('后端会报自己的进程标识（页面靠它判断自己是不是过期了）',
+    Boolean(bootA && bootA.id) && bootA.id === bootB.id,
+    bootA ? `第一次 ${bootA.id}，第二次 ${bootB && bootB.id}（同一个进程必须一样）` : '拿不到 /pulse-boot');
+
+  const bootSeen = await page.evaluate(() => window.__PULSE_SHELL_DEBUG__.boot());
+  record('外壳自己在轮询这个标识（不是只在启动时读一次）',
+    bootSeen.checks > 0 && bootSeen.id === (bootA && bootA.id),
+    `检查了 ${bootSeen.checks} 次，记下的 id=${bootSeen.id || '(空)'}`);
+
+  let navigated = false;
+  page.once('framenavigated', () => { navigated = true; });
+  await page.evaluate(() => {
+    // Pretend the answer changed: the shell has to reload, and only because of that.
+    const real = window.fetch;
+    window.fetch = (url, init) => (String(url).includes('pulse-boot')
+      ? Promise.resolve(new Response(JSON.stringify({ id: 'pretend-restart' }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      }))
+      : real.call(window, url, init));
+    window.__PULSE_SHELL_DEBUG__.pollBoot();
+  });
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  record('（自校验）后端换了 → 页面自己重载（不用用户去按刷新）',
+    navigated, navigated ? '页面已经重新加载' : '页面没有重载');
+
   // Serving the document ourselves costs it Chromium's "local network" blessing,
   // so the page's own WebSocket to 127.0.0.1 is refused. That is an artifact of
   // this harness rather than of the shell, so it is filtered by exact name and

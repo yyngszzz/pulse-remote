@@ -1,63 +1,3 @@
-# pulse-remote
-
-**English TL;DR** — a plugin for **DeepSeek Harness** (`@deepseek-ai/dsh`, "DSH") that puts the *real*
-desktop client in your pocket instead of a reduced mobile UI: the phone is served the same client the
-PC runs, with a small injected layer that turns the sidebar into a drawer and the header into
-something a thumb can reach.
-
-What it adds:
-
-- **The whole client, not a summary.** Every panel, setting and document viewer works on the phone
-  because it *is* the same client — the plugin proxies it rather than reimplementing it.
-- **A distilled activity stream** (`/pulse`): tool calls collapse into one line, so a 400-step turn
-  reads as a handful of meaningful events instead of noise.
-- **A decisions queue you can answer from the lock screen.** When the agent needs a human, the
-  request is pushed with its options; answering it on the phone answers it on the desktop, and if
-  the phone never does, the desktop gets it back after a timeout.
-- **Turn-completion push**, with the same "is this the end or just a pause?" logic on both ends
-  (a turn that ends and is immediately followed by another one is not the end).
-- **Download / forward on every file the agent hands you**, wherever it is mentioned.
-
-Status: a personal project, published because it turned out to be useful. It is honest about what it
-is — see *Coupling* below — and it has **260 unit tests plus real-browser probes** that run against
-the actual client, because most of what can break here breaks silently.
-
-## Security first
-
-This plugin grants **remote control of the machine it runs on**, and it can answer the agent's
-requests as if you were sitting at the desk. Read [SECURITY.md](SECURITY.md) before exposing it to
-anything. The short version: it listens on loopback by default, and it is meant to be reached
-through an SSH tunnel or a reverse proxy you control — never by opening its port to the internet.
-
-## Coupling (read this before upgrading DSH)
-
-DSH's client does not offer extension points for most of what this needs, so the phone layer works
-by anchoring on **generated class-name suffixes and slot ids** (`_sidebarCol`, `_headerActions`,
-`conversation.session.header.actions`, …) and by reading a few React props. When the client changes,
-those anchors move and the layer stops applying — silently, by construction.
-
-That is why the repository ships probes that measure the real client in a real browser, and why the
-rule is: **only the DSH build whose probes are green is supported.** If something looks wrong after
-an upgrade, run `node scripts/verify-mobile-layer.mjs` first — it compares what is being served
-against what is on disk and names every anchor that moved.
-
-## Install
-
-See the Chinese README below for the full walkthrough (install into a DSH profile, pair the phone,
-set up the tunnel). The short version:
-
-```sh
-npm install                       # dependencies
-npm test                          # 260 tests
-node scripts/preflight.mjs <url>  # idempotent deployment self-check
-```
-
-## License
-
-MIT — see [LICENSE](LICENSE).
-
----
-
 # Pulse
 
 **在手机上遥控电脑上的 DeepSeek Harness。**
@@ -101,7 +41,7 @@ MIT — see [LICENSE](LICENSE).
 可以单独复用：
 
 ```js
-import { Distiller } from 'pulse-remote/distill';
+import { Distiller } from 'dsh-remote-pulse/distill';
 
 const distiller = new Distiller({ onFrame: frame => console.log(frame.text) });
 distiller.turnStart({ sessionId: 's1', turn: 1 });
@@ -130,7 +70,7 @@ agent 阻塞在审批或提问上时，请求推到手机，一按就放行。
 ## 安装
 
 ```sh
-dsh plugin --profile web add pulse-remote
+dsh plugin --profile web add dsh-remote-pulse
 ```
 
 重启 DSH 后，Pulse 在 **3199** 端口起自己的监听（默认只绑 `127.0.0.1`）。
@@ -145,9 +85,9 @@ $profiles = "$env:USERPROFILE\.dsh\profiles"
 
 # 1. 链接到 bundle 解析的父级锚点
 New-Item -ItemType Directory -Force -Path "$profiles\node_modules" | Out-Null
-New-Item -ItemType Junction -Path "$profiles\node_modules\pulse-remote" -Target "<源码绝对路径>"
+New-Item -ItemType Junction -Path "$profiles\node_modules\dsh-remote-pulse" -Target "<源码绝对路径>"
 
-# 2. 编辑 $profiles\web\package.json，把 "pulse-remote" 追加到 dsh.profile.bundles
+# 2. 编辑 $profiles\web\package.json，把 "dsh-remote-pulse" 追加到 dsh.profile.bundles
 ```
 
 bundle 名称解析顺序是「dsh 安装目录 → profile 目录」，后者的父级回溯正好命中 `profiles\node_modules`。
@@ -163,7 +103,7 @@ bundle 名称解析顺序是「dsh 安装目录 → profile 目录」，后者�
 ```yaml
 # ~/.dsh/profiles/web/cordis.patch.yml
 - id: remote-pulse
-  name: pulse-remote
+  name: dsh-remote-pulse
   config:
     host: '0.0.0.0'
     port: 3199
@@ -283,7 +223,7 @@ node scripts/devices.mjs status                  # 监听地址、在线手机�
 
 ```yaml
 - id: remote-pulse
-  name: pulse-remote
+  name: dsh-remote-pulse
   config:
     host: '127.0.0.1'        # 设成 0.0.0.0 才允许手机连入
     port: 3199
@@ -677,7 +617,7 @@ scroll chaining 把纵向手势交给父级；而 `overscroll-behavior: contain`
 ```
 === ROW._row_luwio_16
 text: 交付文件已交付pulse-android/dist/pulse-remote.apk转发
-ours: 转发  source=D:\code\pulse-android\dist\pulse-remote.apk  share=1  inRow=true
+ours: 转发  source=D:\deepseek harness\pulse-android\dist\pulse-remote.apk  share=1  inRow=true
 ```
 
 #### 为什么那张交付卡片「电脑端弹了、手机端没弹」
@@ -706,18 +646,18 @@ ours: 转发  source=D:\code\pulse-android\dist\pulse-remote.apk  share=1  inRow
 
 #### 对话里那条虚线下划线的文件路径也给（`fileLinkActionsScript`）
 
-`读取 pulse-remote\lib\ui.js` 这种工具行里，文件路径是一条**虚线下划线**，点开是预览。
+`读取 dsh-remote-pulse\lib\ui.js` 这种工具行里，文件路径是一条**虚线下划线**，点开是预览。
 用户就是在这一行上看见文件名的，所以下载/转发就挂在这里（电脑「下载」、手机「转发」，
 样式沿用路径自己的类，看起来是同一条下划线的一部分）。
 
-**难点只有一个：路径是相对工作区的。** DOM 里印的是 `pulse-remote\lib\ui.js`，
+**难点只有一个：路径是相对工作区的。** DOM 里印的是 `dsh-remote-pulse\lib\ui.js`，
 而绝对路径**只存在于 React 组件的 props 里** —— 没有 data 属性，也没有 title。
 唯一的办法是读 React 挂在 DOM 节点上的内部键（`__reactFiber$…`），往上走几层拿到 `filePath`，
 拿不到就用同一层的 `cwd` 自己拼：
 
 ```
-d6: filePath=D:\code\pulse-android\app\java\com\pulse\remote\Downloader.java
-d7: cwd=D:\code
+d6: filePath=D:\deepseek harness\pulse-android\app\java\com\pulse\remote\Downloader.java
+d7: cwd=D:\deepseek harness
 ```
 
 读别的库的内部结构是要付代价的，所以加了三道闸：
@@ -758,7 +698,7 @@ d7: cwd=D:\code
 
 ```html
 <div class="dhJKeW_header">
-  <div class="dhJKeW_path" title="D:\code\lib\ui.js" data-textpreview-path="true">…</div>
+  <div class="dhJKeW_path" title="D:\deepseek harness\lib\ui.js" data-textpreview-path="true">…</div>
   <span><button class="dhJKeW_tool" aria-label="打开方式">代码</button></span>
   <button class="dhJKeW_tool" data-textpreview-tool="wrap">…</button>
   <button class="dhJKeW_tool" data-textpreview-tool="reload">…</button>
@@ -1060,7 +1000,7 @@ node scripts/smoke.mjs                # 真 HTTP：配对、SSE、决策、撤�
 真实手机 + 真实 DSH + 腾讯云服务器 + SSH 反向隧道 + nginx 自签 HTTPS 的完整链路上验证通过：
 
 ```
-手机浏览器 ──HTTPS──> 203.0.113.10:443 (nginx)
+手机浏览器 ──HTTPS──> YOUR_HOST:443 (nginx)
            ──SSH 反向隧道──> 你的电脑 127.0.0.1:3199 (Pulse)
            ──loopback 代理──> 127.0.0.1:3181 (DSH GUI)
 ```
@@ -1086,7 +1026,7 @@ node scripts/smoke.mjs                # 真 HTTP：配对、SSE、决策、撤�
 {"kind":"session",   "text":"开始工作","ref":{"status":"running"}}
 {"kind":"turn-start","text":"开始处理","ref":{"turn":1}}
 {"kind":"activity",  "text":"执行命令 echo hello","ref":{"group":"command"}}
-{"kind":"activity",  "text":"读取 pulse-remote/package.json","ref":{"group":"read"}}
+{"kind":"activity",  "text":"读取 dsh-remote-pulse/package.json","ref":{"group":"read"}}
 {"kind":"turn-end",  "text":"任务完成 · 8 秒 · 2 次工具调用 · 执行命令1、读取1",
                      "ref":{"turn":1,"outcome":"done","tools":2}}
 ```
@@ -1117,15 +1057,15 @@ node scripts/smoke.mjs                # 真 HTTP：配对、SSE、决策、撤�
 复现真机回归（需模型凭据）：
 
 ```powershell
-$liveHome = "D:\code\.dsh-pulse-live"
+$liveHome = "D:\deepseek harness\.dsh-pulse-live"
 New-Item -ItemType Directory -Force -Path "$liveHome\profiles\web","$liveHome\profiles\node_modules" | Out-Null
 Copy-Item "$env:USERPROFILE\.dsh\.credentials.yaml" "$liveHome\.credentials.yaml"
-New-Item -ItemType Junction -Path "$liveHome\profiles\node_modules\pulse-remote" `
-  -Target "D:\code\pulse-remote"
+New-Item -ItemType Junction -Path "$liveHome\profiles\node_modules\dsh-remote-pulse" `
+  -Target "D:\deepseek harness\dsh-remote-pulse"
 # 按上面折叠块说明登记 bundle，然后：
 $env:DSH_HOME = $liveHome
 dsh --profile web --no-open --port 3171
-node pulse-remote\scripts\verify-remote.mjs http://127.0.0.1:3199
+node dsh-remote-pulse\scripts\verify-remote.mjs http://127.0.0.1:3199
 ```
 
 `headless` profile 的 bundles 里没有本插件；要在 headless 里跑需用 `--patch` 叠加层注入。
